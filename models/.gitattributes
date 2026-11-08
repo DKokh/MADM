@@ -1,6 +1,0 @@
-# Model bundles are binary and large (seeds x full state dicts). If this
-# repository uses Git LFS, tracking them here keeps clones usable; if it does
-# not, this file is inert and the bundles should be attached to a release
-# instead of committed. Either way, MODELS.yaml carries the sha256 so a
-# truncated or swapped file is caught before it is used for a prediction.
-*.pt filter=lfs diff=lfs merge=lfs -text
