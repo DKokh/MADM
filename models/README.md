@@ -149,9 +149,8 @@ names the table the model was fitted on.
 
 **Similarity to the training set.** A model interpolates where your molecules
 resemble what it saw and extrapolates where they do not, and the prediction
-alone does not say which. A random antibody pair sits near 0.16 on 4-mer
-Jaccard, so a median nearest-neighbour similarity around 0.65 means close
-relatives were in training.
+alone does not say which. madm.sketch quantifies this -see 
+“How close are my molecules to the training set?” in the main README. 
 
 **The noise floor.** Where one is set, ordering among values below it is not
 measurable, and a Spearman computed across them is partly ranking noise.
