@@ -1,0 +1,96 @@
+# Complete environment for MADM, including the parts pip cannot install.
+#
+#     conda env create -f environment.yml      # run from this directory
+#     conda activate madm
+#     madm doctor --config config.yaml
+#
+# The last line is the point of the file: it checks every dependency below in one
+# pass. Without it you find the missing ones one per failed run, each after the
+# table has loaded and the structures have been built.
+#
+# ---------------------------------------------------------------------------
+# THIS FILE INSTALLS EVERYTHING. conda has no equivalent of pip's extras, so
+# narrowing it means deleting lines. Three cases, marked in place below:
+#
+#   embeddings only (--model ablang)
+#       use environment-ablang.yml instead -- it needs no conda channels at all
+#       and none of the packages below that are slow or awkward to install
+#
+#   structures you SUPPLY yourself (`pdb` column or --pdb-dir)
+#       delete the three lines marked [PREDICT ONLY]. The rest of the structure
+#       block stays: the feature extractor imports biotite, hydride, mdtraj,
+#       propka and anarci at module load, whoever produced the .pdb files
+#
+#   no embeddings (--model feat)
+#       delete the one line marked [ABLANG]
+#
+# Deleting more than that does not fail at install -- it fails hours into a run,
+# so prefer `madm doctor` over guessing.
+# ---------------------------------------------------------------------------
+#
+# CHANNEL ORDER MATTERS. conda-forge before bioconda before defaults, and
+# `strict` priority, so a package present in two channels always comes from the
+# same one. Mixing defaults with conda-forge is how an environment ends up with
+# two incompatible builds of the same compiled library.
+name: madm
+
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+
+dependencies:
+  # Python 3.10-3.12 only. torch, ablang2 and the compiled structure packages
+  # publish builds for a new interpreter months late, so 3.13/3.14 resolve to
+  # "no matching distribution" or install without the packages MADM needs.
+  - python=3.12
+
+  # ---- core: training and inference -------------------------------------
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - scikit-learn>=1.3
+  - pyyaml>=6.0
+  - openpyxl>=3.1          # reading .xlsx tables
+  - matplotlib>=3.6        # validation and calibration figures
+  - pytest>=7.0
+
+  # ---- feat stream: 3D structures ---------------------------------------
+  - transformers           # [OPTIONAL] only for model.embedder: esm2-*
+  - openmm                 # [PREDICT ONLY] ImmuneBuilder's refinement step
+  - pdbfixer               # [PREDICT ONLY] not published to PyPI at all
+  - mdtraj                 # geometry; pip needs a compiler, conda does not
+  - biotite>=0.39          # PDB parsing, SASA, contacts
+  - anarci                 # IMGT numbering                        [bioconda]
+  - hmmer                  # anarci's alignment backend            [bioconda]
+
+  # ---- pip-only ----------------------------------------------------------
+  - pip
+  - pip:
+      # PyTorch. This is the CPU/default wheel; on a GPU instance install the
+      # build matching your CUDA version from pytorch.org INSTEAD of this line,
+      # and make it the same build the notebooks use -- a bundle written under
+      # one PyTorch and loaded under another can fail on the state dict.
+      - torch>=2.0
+
+      - ImmuneBuilder>=1.1   # [PREDICT ONLY] structure prediction
+      - ablang2>=0.1         # [ABLANG] the embedding stream
+      - hydride              # protonation, for the feature extractor
+      - propka               # pKa and residue charge
+
+      # MADM itself, editable, from this directory. Drop the `-e` for a fixed
+      # install. Requires `conda env create` to be run from the folder holding
+      # pyproject.toml.
+      - -e .
+
+# ---------------------------------------------------------------------------
+# Two downloads happen on FIRST USE, not at install, and both need network:
+#
+#   ImmuneBuilder  fetches its weights from Zenodo when ABodyBuilder2() is first
+#                  constructed. Zenodo returns 502/504 under load and has
+#                  multi-hour outages, so fetch them during provisioning:
+#                      python -c "from ImmuneBuilder import ABodyBuilder2; ABodyBuilder2()"
+#   ablang2        fetches its checkpoint from Hugging Face on first embedding.
+#
+# Neither is needed if you supply your own structures and skip the ablang stream.
+# ---------------------------------------------------------------------------

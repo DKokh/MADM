@@ -1,0 +1,254 @@
+# Every setting that affects a result. There are no globals anywhere else, and
+# cfg.hash() over this file names the run directory -- so a number can always be
+# traced back to the settings that produced it. Unknown keys are an error, not a
+# silent no-op.
+
+target: SMP
+
+# Auxiliary assays for multi-task training. Leave empty for a single-task model.
+# The target's weight in the joint loss is DERIVED as max(len(aux), 1), so the
+# target keeps half the total loss whatever the auxiliary count. It is not
+# configurable, because configuring it separately is how it ends up counting
+# assays that were filtered out and never actually trained on.
+aux: []
+# aux: [Ovalbumin, Insulin, BVP]
+
+# Where an assay's values live in the table, when the column is not simply the
+# assay name. Only the exceptions need listing: `load_train` already tries
+# `<assay>`, `<assay with _ for ->` and both with `_rescaled`, and prints which
+# column it used. Naming it here records the choice in the run config, so a
+# reported number can be traced to the column it came from.
+columns: {}
+# columns: {Insulin: Insulin_rescaled, BVP: BVP_rescaled, AC-SINS: AC_SINS_rescaled}
+
+# Which inputs the model reads. There are exactly TWO valid entries:
+#   feat    - 3D structural per-residue features (needs structure prediction)
+#   ablang  - frozen AbLang2 embeddings (no structures needed)
+# List one for a single-stream model, or both for late fusion:
+#  feat, ablang   - p = w*p_feat + (1-w)*p_ablang, with one learned w per assay.
+streams: [feat, ablang]
+
+paths:
+  table: data/train.csv          # Ab_ID, VH, VL, <one column per assay>
+  structures: results/pdb        # where MADM writes the ones it predicts
+  # YOUR OWN structures -- crystal/cryo-EM, or predictions from something else.
+  # Searched first, so only the molecules you have no file for are predicted, and
+  # a complete set means ImmuneBuilder is never imported. Files are matched by
+  # <Ab_ID>.pdb or <sha1(VH|VL)[:16]>.pdb; a `pdb` column in the table names a
+  # full path directly and wins over both -- use that when file names are not
+  # unique across datasets. Not searched recursively. Chains must be H and L (or
+  # A and B). null -> predict everything.  CLI: --pdb-dir
+  structures_in: null
+  features: results/features
+  runs: runs
+  # Directory holding Hidrophobisicy_score.xlsx and Residue_max_SASA.xlsx.
+  # null -> the copies shipped inside the package, which is what lets a plain
+  # `pip install madm` featurise with no files alongside it. Set this only to
+  # override them with your own scales.
+  reference_tables: null
+
+# Check that a SUPPLIED .pdb really is the molecule the table names it as, by
+# comparing its chain sequences with VH/VL (>=90% identity; missing loops are
+# fine). Every feature is read off the STRUCTURE -- VH/VL never enter the tensor
+# -- so a file under the wrong name attaches one antibody's geometry to another's
+# measurement, and no metric downstream would show it. Predicted structures are
+# built from VH/VL and cannot disagree, so this only affects your own files.
+check_pdb_sequence: true
+
+# Arguments to Scripts/Features3D_v1.extract_features_batch. These change the
+# TENSOR, so they are hashed into the cache filename and written inside the cache;
+# a model refuses to predict on features built with different values. The defaults
+# are the values used in Generate_Embedding_clean.ipynb cell 12 -- note that
+# k_neighbors there is 6, while the function's own default is 10, which silently
+# adds four channels.
+features:
+  max_len: 290
+  score: WiWh                        # hydrophobicity scale
+  k_neighbors: 6                     # -> `neighbors` is [L, 6]
+  contact_large: [6.0, 9.0, 12.0, 16.0]
+  contact_small: [6.0, 9.0, 12.0]
+  contact_selected: [0, 2]   # which contact_small radii survive de-correlation
+  # Seconds allowed per molecule for hydride's hydrogen RELAXATION. Placing
+  # hydrogens is quick; optimising every rotatable OH / NH3+ / SH orientation is
+  # not, and on a structure with a bad contact it can fail to terminate -- a
+  # panel of 800 then stalls on one molecule with no sign of which. On overrun
+  # the ideal-geometry hydrogens are kept and a warning names the budget.
+  #   0  -> skip relaxation entirely: bounded runtime, less accurate H-bond counts
+  # Part of the cache signature, so changing it rebuilds rather than mixing
+  # relaxed and unrelaxed hydrogens in one column.
+  relax_timeout_s: 30.0
+  relax_iterations: null
+
+model:
+  hidden: 48        # feature trunk width  -> z_feat is 2*hidden
+  ab_hidden: 64     # AbLang trunk width   -> z_ab   is 2*ab_hidden
+  head: 16          # ignored when simple_head
+  ab_head: 32       # ignored when ab_simple_head
+  dropout: 0.25
+  ab_mode: small    # small | large | conv
+  # Which frozen language model fills the second stream. Each writes its own
+  # cache and stamps its name into the bundle, so the two can never be mixed up.
+  # ESM has seen camelid VHHs in UniRef, AbLang2-paired has not -- prefer ESM for
+  # single-domain work, AbLang2 for paired human Fv. `pip install transformers`
+  # for the ESM options.
+  embedder: ablang2   # ablang2 | esm2-35m | esm2-150m | esm2-650m
+  # Which ESM block to read. -1 is the last and usually NOT the best: the final
+  # layer is specialised for masked-token prediction. Mid-stack is the usual
+  # choice -- 17 of 33 (650M), 15 of 30 (150M), 6 of 12 (35M). Ignored by ablang2.
+  embedder_layer: -1
+  pool: attn        # FEATURE-stream readout: attn | meanmax
+  # AbLang-stream readout. The streams pool separately because the notebooks pool
+  # them separately: attention on the feature trunk, the per-assay `Abl_pool` on
+  # the AbLang trunk. null follows `pool`, which is what every run before this
+  # field did.
+  ab_pool: meanmax  # attn | meanmax | null -> follow pool
+  use_global: true  # global features, feature head only
+  # true  -> Dropout -> Linear
+  # false -> Linear -> LayerNorm -> GELU -> Dropout -> Linear, of width `head`
+  #          (so `head` is inert while this is true). Set per assay.
+  simple_head: true
+  ab_simple_head: null   # null -> follow simple_head
+  # Late fusion: p = w*p_feat + (1-w)*p_ab, w = sigmoid(w_logit), one per assay.
+  init_w: 0.5       # where the blend starts; 0.5 is the plain average
+  freeze_w: false   # true -> pin it there instead of learning it. With
+                    # init_w: 0.5 that is a fixed 50/50 average, the control
+                    # that separates "fusion helps" from "a LEARNED blend
+                    # helps". Inert for single-stream runs.
+  # imgt -> scatter per-residue features onto a fixed frame of IMGT positions
+  #         built from the TRAINING molecules and stored in the bundle, so column
+  #         j is the same position in every antibody and at inference. This is
+  #         what Model_TwoStream.ipynb trains on.
+  # raw  -> N-terminally padded arrays as the extractor emits them. Position j
+  #         then means a different residue in different molecules; only for
+  #         reproducing older runs.
+  frame: imgt
+
+train:
+  epochs: 260
+  lr: 1.0e-3
+  weight_decay: 5.0e-3
+  batch_size: 32
+  patience: 20
+  # One model per seed. All of them are saved and averaged at inference; the
+  # spread across seeds is reported so you can see how much is initialisation noise.
+  seeds: [42, 7, 134, 2024, 88]
+  # Seeds for the FINAL models only; null -> use `seeds` for both. CV's seeds
+  # only have to make the median best epoch stable, and five do that; the final
+  # fit's seeds ARE the released ensemble, and more of them shrink the
+  # initialisation noise in any comparison between two arms. Raising `seeds`
+  # itself to 20 would also quadruple the cross-validation, for no gain.
+  final_seeds: null
+  warm_start: true  # fit each stream alone first, copy weights in; a fused model
+                    # then starts exactly at the average of the two streams
+  warm_epochs: 200
+  grad_clip: 1.0
+  # Pointwise loss on uncensored points. The notebooks call train_simple with
+  # nonzero_weight=1, which collapses Train_loader.weighted_mse_loss to plain MSE
+  # -- so `mse` is what every published number was trained with.
+  loss: mse            # mse | smooth_l1
+  # Which validation number picks the epoch; the notebooks pass select_on="mse".
+  # Spearman is scale-invariant, so a model that shrinks its predictions toward
+  # the mean pays NO penalty: the SMP feature stream reached sd(pred)=0.19 against
+  # sd(true)=1.0 and still scored rho=0.57. mse penalises shrinkage and bias.
+  select_on: mse       # mse | spearman | pearson
+  # true  keep the best-scoring epoch's weights (checkpoint selection).
+  # false run the full budget and keep the LAST epoch. Checkpoint selection
+  #       scores every epoch against the validation fold and keeps the winner, so
+  #       with a small fold the chosen epoch is partly a draw from that fold's
+  #       noise -- and the same molecules are then scored. Harmless on a fold of
+  #       hundreds; the dominant effect on a fold of twenty.
+  select_best: true
+  # The notebooks use Adam. At weight_decay=5e-3 Adam (L2 into the gradient) and
+  # AdamW (decoupled) are not interchangeable.
+  optimizer: adam      # adam | adamw
+  # How the AUXILIARIES are weighted in the joint loss.
+  #   uncertainty  each auxiliary gets one learned log-variance (Kendall, Gal &
+  #                Cipolla 2018) while the TARGET stays pinned at the derived
+  #                max(len(aux), 1). The model can switch off donors that
+  #                transfer negatively without the target's weight ever being at
+  #                risk. This is what MultiTask.ipynb does and what the published
+  #                multi-task numbers used. NOTE the target's SHARE of the loss
+  #                then drifts upward as auxiliaries fall, so "the target holds
+  #                half the loss" is true only at initialisation -- the learned
+  #                weights are printed per seed and written to summary.json.
+  #   fixed        every auxiliary at 1.0 for the whole run, so the weighting is
+  #                reproducible from this file alone. For ablation.
+  # Inert for single-task runs: with no auxiliaries no weighter is built.
+  aux_weighting: uncertainty   # uncertainty | fixed
+  # Effective weight of each auxiliary at initialisation. 1.0 starts exactly at
+  # the `fixed` baseline, so training can only move away from it deliberately.
+  aux_init_weight: 1.0
+
+target_opts:
+  log: true              # log1p before z-scoring; assay values are right-skewed
+  threshold: 0.3         # for AUC, in ORIGINAL units
+  higher_is_bad: true
+  # Below this the assay cannot distinguish values. On its own this is only a
+  # NUMBER -- the two switches below decide what is done with it, and neither is
+  # implied by setting it.
+  noise_floor: null
+  # Which side of noise_floor is censored.
+  #   floor    values at or below it are below detection (default)
+  #   ceiling  values at or above it are beyond the instrument's range -- e.g. a
+  #            HIC molecule so hydrophobic it never eluted, recorded at the
+  #            maximum, whose true retention time is unknown but larger
+  # A censored point says only "the true value is past this limit". Fitting it as
+  # an exact measurement drags the model toward the limit, and censored molecules
+  # are the extreme ones -- precisely where the ranking matters.
+  censor_side: floor
+  # Is the TARGET LOSS left-censored (Tobit) below the floor?
+  #   false  ordinary `train.loss` on every point. Reproduces the notebooks, whose
+  #          CENSOR_AT_FLOOR defaults to false -- there a floor selects
+  #          Train_loader.tobit_loss, which censors on `target == 0` and so never
+  #          fires after z-scoring, collapsing to MSE.
+  #   true   censored points contribute the log-probability of being below the
+  #          floor instead of a squared error against an unresolvable value.
+  censor_loss: false
+  # Noise SD at the floor as a fraction of the floor's magnitude, converted to
+  # z-space per fold. Only used when noise_floor is set. A fixed sigma is wrong by
+  # 0.2x-17x across the real assays; see TargetTransform.floor_sigma_z.
+  floor_sigma_frac: 0.5
+  # Whether REPORTED rank metrics are clipped at noise_floor first.
+  #   false  original units, uncensored -- the raw measurement, but it includes
+  #          ordering among values the assay cannot actually distinguish
+  #   true   clip both arrays at the floor -- the conservative reading
+  # A reporting choice only: model selection always uses the censored metric, so
+  # early stopping never stops on sub-floor noise. cv_metrics.csv carries BOTH
+  # rho and rho_c whatever this is, so a finished run can be re-read either way.
+  report_censored: false
+  # Put predictions back on the scale of the original training values. A
+  # regularised model shrinks, so inverting the z-score gives the right units but
+  # a compressed range -- a true 22 comes back as 8. The map is MONOTONE, so
+  # Spearman and AUC are unchanged exactly; only the values move. Fitted on
+  # out-of-fold predictions, so it corrects shrinkage rather than optimism.
+  #   none      leave predictions as they are
+  #   linear    match the mean and sd of the training values
+  #   quantile  match the whole training distribution
+  calibrate: quantile
+
+# Two independent choices. `cluster` groups molecules; `folds` turns groups into
+# folds. The notebook pair (GRAPH_CLUST=False, RANDOM_FOLD=False) is
+# greedy + groupkfold, which is the default here.
+split:
+  # greedy   CD-HIT-like greedy representatives on VH and VL separately; the
+  #          cluster label is the PAIR (H_id, L_id).      [notebook default]
+  # graph    connected components of "Jaccard(VH) >= t OR Jaccard(VL) >= t".
+  #                                                       [GRAPH_CLUST = True]
+  # none     every molecule its own cluster. Only valid with folds: random.
+  # (`linkage` was removed -- single linkage at a threshold is the connected
+  #  components of that graph, so it was `graph` under another name.)
+  cluster: greedy
+  # groupkfold  GroupKFold over shuffled cluster ids (Splitter.split_by_similarity)
+  # balanced    whole clusters assigned greedily largest-first, equal fold sizes
+  # random      molecules assigned independently, ignoring clusters. Near-duplicates
+  #             then span train and test and every score rises 15-25%. Use only to
+  #             reproduce older runs.               [RANDOM_FOLD = True]
+  folds: groupkfold
+  threshold: 0.8   # k-mer Jaccard for cluster membership
+  k: 4
+  min_len_vh: 90   # shorter VH -> forced singleton rather than a spurious match
+  min_len_vl: 80
+  n_folds: 5
+  seed: 0
+
+device: cuda

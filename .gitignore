@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Excel lock files -- created while a workbook is open, never wanted
+~$*
+
+# Run outputs. Each is a trained model plus its figures and per-fold CSVs:
+# large, regenerable, and specific to one machine. Released models go in
+# models/ as archives instead.
+runs/
+results/
+
+# Caches keyed by content hash: structures, 3D features, embeddings. Rebuilt on
+# demand by `madm prepare`, and hundreds of MB once a panel has been run.
+*.npz
+*.pt
+cache/
+structures/
+
+# Training data is NOT redistributed -- see NOTICE. Nothing under data/ except
+# the source table belongs in the repository.
+data/*
+!data/sources.xlsx

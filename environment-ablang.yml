@@ -1,0 +1,52 @@
+# MADM without structures: the AbLang2 embedding stream only.
+#
+#     conda env create -f environment-ablang.yml
+#     conda activate madm-ablang
+#     madm doctor --config config.yaml --model ablang
+#     madm train  --config config.yaml --model ablang
+#
+# Everything here is pip-installable. None of openmm, pdbfixer, mdtraj, anarci or
+# hmmer appears, so there are no compiled packages, no bioconda, and nothing that
+# needs a C toolchain -- which is most of what makes the full install awkward.
+#
+# What you give up: `--model feat`, `2s` and `mt` all read the structure stream
+# and will not run. `madm doctor` reports the missing packages but does not count
+# them as failures when the config asks only for embeddings.
+#
+# To add structures later, create the full environment from environment.yml
+# rather than installing into this one -- openmm and mdtraj resolve differently
+# once pip has already placed their dependencies.
+name: madm-ablang
+
+channels:
+  - conda-forge
+  - nodefaults
+
+dependencies:
+  # Same 3.10-3.12 constraint as the full environment: torch and ablang2 publish
+  # builds for a new interpreter months late.
+  - python=3.12
+
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - scikit-learn>=1.3
+  - pyyaml>=6.0
+  - openpyxl>=3.1          # reading .xlsx tables
+  - matplotlib>=3.6        # validation and calibration figures
+  - pytest>=7.0
+
+  - pip
+  - pip:
+      # CPU/default wheel. On a GPU instance take the CUDA build from
+      # pytorch.org instead, and make it the same build the notebooks use.
+      - torch>=2.0
+      - ablang2>=0.1
+      - -e .
+
+# ---------------------------------------------------------------------------
+# ablang2 downloads its checkpoint from Hugging Face on the FIRST embedding, not
+# at install. Pull it during provisioning if the machine may later be offline or
+# rate-limited:
+#     python -c "import ablang2; ablang2.pretrained(model_to_use='ablang2-paired')"
+# ---------------------------------------------------------------------------

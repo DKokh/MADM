@@ -1,0 +1,38 @@
+MADM -- Multi-Assay Developability Model
+Copyright 2026 Daria B. Kokh
+
+Licensed under the Apache License, Version 2.0; see LICENSE. The same licence
+covers the trained model weights distributed under models/.
+
+-------------------------------------------------------------------------------
+Training data
+-------------------------------------------------------------------------------
+
+No training data is redistributed with this package. The measurements used to
+fit the released models were collected from published sources; data/sources.xlsx
+lists every (assay, source) pair with its reference and DOI.
+
+The corpus includes the Ginkgo Datapoints GDPa1 dataset
+(https://huggingface.co/datasets/ginkgo-datapoints/GDPa1), licensed CC BY 4.0,
+and is credited here as that licence requires.
+
+-------------------------------------------------------------------------------
+Third-party components
+-------------------------------------------------------------------------------
+
+The following are optional or required dependencies, installed separately and
+governed by their own licences, not by this one:
+
+  ANARCI            BSD 3-Clause   antibody numbering (required for `feat`)
+  AbLang2           BSD 3-Clause   default sequence embedding
+  ImmuneBuilder     optional       structure prediction, when not supplied
+  ESM-2             optional       alternative sequence embedding
+
+-------------------------------------------------------------------------------
+Development
+-------------------------------------------------------------------------------
+
+Claude (Claude Opus 5, Anthropic) was used to assist with code generation,
+debugging and documentation. All scientific decisions, implementation review
+and validation are the author's.
+

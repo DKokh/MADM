@@ -1,0 +1,84 @@
+# SMP, multi-task. The model/train values are the SMP row of `assay_cfg` in
+# MultiTask.ipynb, so a run from this file is comparable with the notebook's:
+#
+#   "SMP": (1.0e-3, 32, 16, 0.3, 5e-3, True, True, 30, 0.1, "small", "meanmax")
+#            lr    HID HEAD drop  WD  simple y_log pca NOISE  ab_mode  ab_pool
+#
+# Anything not mentioned in that row keeps the package default.
+
+target: SMP
+aux: [Ovalbumin, Insulin, BVP]
+
+# Two valid entries, `feat` and `ablang`. Listing both is late fusion --
+# there is no "both" value.
+streams: [feat, ablang]
+
+paths:
+  table: data/SMP_train.csv      # Ab_ID, VH, VL, SMP, Ovalbumin, Insulin, BVP
+  structures: results/pdb
+  features: results/features
+  runs: runs
+  reference_tables: null         # null -> the copies shipped inside the package
+
+features:
+  max_len: 290
+  score: WiWh
+  k_neighbors: 6
+  contact_large: [6.0, 9.0, 12.0, 16.0]
+  contact_small: [6.0, 9.0, 12.0]
+  contact_selected: [0, 2]
+
+model:
+  hidden: 48          # HID for SMP (HID_MTL = max(32, HID) = 32)
+  ab_hidden: 64       # AB_HID, not per assay in the notebook
+  head: 16            # HEAD -- ignored here because simple_head is true
+  ab_head: 32         # HEAD_2S
+  dropout: 0.3
+  ab_mode: small      # Abl_model
+  pool: attn          # feature trunk: the notebook hard-codes attention
+  ab_pool: meanmax    # Abl_pool for SMP
+  use_global: true
+  simple_head: true
+  ab_simple_head: false   # the notebook builds the AbLang head with the MLP form
+  frame: imgt
+
+train:
+  epochs: 260
+  lr: 1.0e-3
+  weight_decay: 5.0e-3
+  batch_size: 32
+  patience: 20
+  seeds: [42, 7, 134, 2024, 88]
+  warm_start: true
+  warm_epochs: 200
+  grad_clip: 1.0
+  loss: mse
+  select_on: mse
+  optimizer: adam
+
+target_opts:
+  log: true
+  threshold: 0.3      # ASSAY_REGISTRY["SMP"]["threshold"], in ORIGINAL units
+  higher_is_bad: true
+  # SMP's NOISE_FLOOR in the notebook. On its own this is only a number: it
+  # censors the metric used for early stopping, and the two switches below decide
+  # the rest.
+  noise_floor: 0.1
+  censor_loss: false      # true -> Tobit target loss below the floor
+  floor_sigma_frac: 0.5   # only used when censor_loss is true
+  report_censored: false  # rho and rho_c are both written either way
+  calibrate: quantile
+
+split:
+  # greedy + groupkfold is the notebook pair (GRAPH_CLUST=False, RANDOM_FOLD=False).
+  # Use cluster: graph for the leakage-safe estimate.
+  cluster: greedy
+  folds: groupkfold
+  threshold: 0.8
+  k: 4
+  min_len_vh: 90
+  min_len_vl: 80
+  n_folds: 5
+  seed: 0
+
+device: cuda
