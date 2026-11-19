@@ -5,8 +5,8 @@
 Model for predicting antibody developability from VH/VL sequences across multiple assays 
 Trained and validated on eight assays covering hydrophobicity (HIC), heparin binding (HAC), self-association (AC-SINS) and polyreactivity against five reagents (BVP, dsDNA, insulin, ovalbumin and soluble membrane proteins, SMP).
 
-## Publication 
-Kokh, DB "Multi-Assay Antibody Developability Prediction with Shared Structure-Language Representations" , submitted to arXiv
+## Publicated in 
+Kokh, DB "Multi-Assay Antibody Developability Prediction with Shared Structure-Language Representations" , submitted to arXiv:2611.18846
 
 ## Licence
 
